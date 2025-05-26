@@ -8,4 +8,4 @@ transformers>=4.40
 pandas
 scikit-learn
 openai>=1.30
-line-bot-sdk>=3.5.0,<4.0.0
+line-bot-sdk==3.9.0
