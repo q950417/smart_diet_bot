@@ -1,6 +1,11 @@
 fastapi
 uvicorn[standard]
 python-dotenv
-psycopg[binary]
-line-bot-sdk
+httpx
 pillow
+torch>=2.2
+transformers>=4.40
+pandas
+scikit-learn
+openai>=1.30
+line-bot-sdk>=3.5.0,<4.0.0
