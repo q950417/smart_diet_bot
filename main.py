@@ -1,12 +1,14 @@
 import os, tempfile
 from fastapi import FastAPI, Request, HTTPException
 
+# -------- LINE Bot SDK v3 --------
 from linebot.v3.webhook import WebhookParser, WebhookHandler
 from linebot.v3.messaging import (
     AsyncMessagingApi, ReplyMessageRequest, TextMessage, ImageMessage
 )
-from linebot.v3.exceptions import APIException         # ← v3 通用例外
+from linebot.v3.exceptions import ApiException        # ← 正確名稱
 
+# -------- 你的功能模組 --------
 from food_classifier import classify_image
 from nutrition_db import lookup_food
 from chat import generate_reply
@@ -18,7 +20,7 @@ parser   = WebhookParser(os.getenv("LINE_CHANNEL_SECRET"))
 handler  = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 line_api = AsyncMessagingApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 
-# ───────── Webhook 入口 ─────────
+# ---------- Webhook 入口 ----------
 @app.post("/callback")
 async def callback(request: Request):
     body = await request.body()
@@ -35,7 +37,7 @@ async def callback(request: Request):
             await handle_text(event)
     return "OK"
 
-# ───────── 文字訊息 ─────────
+# ---------- 文字 ----------
 async def handle_text(event):
     text = event.message.text.strip()
     info = lookup_food(text)
@@ -49,7 +51,7 @@ async def handle_text(event):
         reply = generate_reply(text)
     await safe_reply(event.reply_token, reply)
 
-# ───────── 圖片訊息 ─────────
+# ---------- 圖片 ----------
 async def handle_image(event):
     msg_id = event.message.id
     content = await line_api.get_message_content(msg_id)
@@ -71,7 +73,7 @@ async def handle_image(event):
 
     await safe_reply(event.reply_token, reply)
 
-# ───────── 共用安全回覆 ─────────
+# ---------- 安全回覆 ----------
 async def safe_reply(token: str, message: str):
     try:
         await line_api.reply_message(
@@ -80,10 +82,10 @@ async def safe_reply(token: str, message: str):
                 messages=[TextMessage(text=message)]
             )
         )
-    except APIException as e:          # ← v3 的例外基類
-        print("Line APIException:", e.status_code, e.headers, e.body)
+    except ApiException as e:           # ← v3 通用例外
+        print("ApiException:", e.status_code, e.headers, e.body)
 
-# ───────── 健康檢查 ─────────
+# ---------- 健康檢查 ----------
 @app.get("/healthz")
 def health():
     return {"ok": True}
