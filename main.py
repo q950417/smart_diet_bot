@@ -1,12 +1,11 @@
 import os, tempfile
 from fastapi import FastAPI, Request, HTTPException
 
-# -------- LINE Bot SDK v3 --------
+# -------- LINE Bot SDK v3 基本模組 --------
 from linebot.v3.webhook import WebhookParser, WebhookHandler
 from linebot.v3.messaging import (
     AsyncMessagingApi, ReplyMessageRequest, TextMessage, ImageMessage
 )
-from linebot.v3.exceptions import ApiException        # ← 正確名稱
 
 # -------- 你的功能模組 --------
 from food_classifier import classify_image
@@ -30,6 +29,7 @@ async def callback(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # 依訊息型態呼叫處理函式
     for event in events:
         if isinstance(event.message, ImageMessage):
             await handle_image(event)
@@ -82,8 +82,9 @@ async def safe_reply(token: str, message: str):
                 messages=[TextMessage(text=message)]
             )
         )
-    except ApiException as e:           # ← v3 通用例外
-        print("ApiException:", e.status_code, e.headers, e.body)
+    except Exception as e:
+        # 把錯誤印到 log，但不讓程式崩潰
+        print("LINE reply error:", e)
 
 # ---------- 健康檢查 ----------
 @app.get("/healthz")
