@@ -1,32 +1,54 @@
-import os, torch, pathlib, json
-from PIL import Image
-from transformers import AutoProcessor, ViTForImageClassification
+# food_classifier.py
 
-# ----- 模型 ID -----
-# 1) Processor：公開可抓的 ID  (加上 google/)
-# 2) Classifier：已 fine-tune 的 Food101 權重
-PROCESSOR_ID  = "google/vit-base-patch16-224-in21k"
-CLASSIFIER_ID = "nateraw/food101-vit-base-patch16-224"
+import os
+import httpx
+import pathlib
+import json
+from typing import Optional
 
-device = "cpu"   # Render 免費方案只有 CPU
+# 從 .env 或環境變數讀 Spoonacular API Key
+API_KEY = os.getenv("SPOONACULAR_API_KEY", "").strip()
+if not API_KEY:
+    raise RuntimeError("Missing SPOONACULAR_API_KEY in environment.")
 
-# 下載 / 載入
-processor = AutoProcessor.from_pretrained(PROCESSOR_ID)
-model     = ViTForImageClassification.from_pretrained(CLASSIFIER_ID).to(device)
-
-# 英文→中文菜名對照
-try:
-    with open(pathlib.Path(__file__).parent / "label_zh.json", encoding="utf8") as f:
-        LABEL_ZH = json.load(f)
-except FileNotFoundError:
-    LABEL_ZH = {}
+# Spoonacular Image Classification Endpoint
+SPOONACULAR_URL = "https://api.spoonacular.com/food/images/classify"
 
 def classify_image(img_path: str) -> str:
-    """給圖片路徑，回傳食物名稱（盡量中文）。"""
-    img = Image.open(img_path).convert("RGB")
-    inputs = processor(images=img, return_tensors="pt").to(device)
-    with torch.no_grad():
-        logits = model(**inputs).logits
-    pred_id = logits.argmax(-1).item()
-    en_name = model.config.id2label[pred_id]
-    return LABEL_ZH.get(en_name, en_name)
+    """
+    使用 Spoonacular 的 Food Image Classification API  
+    參數 img_path: 本地暫存圖檔路徑
+    回傳: 最高機率條目的 food name (若 API 失敗或拿不到則回空字串)
+    """
+    # 讀取圖片二進位
+    with open(img_path, "rb") as f:
+        img_bytes = f.read()
+
+    # 給 httpx 一個 multipart/form-data 請求 body
+    files = {"file": ("image.jpg", img_bytes, "image/jpeg")}
+    params = {"apiKey": API_KEY}
+
+    try:
+        # 非同步用 httpx.AsyncClient or 同步用 httpx.post
+        r = httpx.post(SPOONACULAR_URL, params=params, files=files, timeout=30.0)
+        r.raise_for_status()
+        data = r.json()
+        # data 看起來像：
+        # {
+        #   "status": "success",
+        #   "classified": [
+        #       {"name": "pizza", "probability": 0.95},
+        #       {"name": "pasta", "probability": 0.03},
+        #       ...
+        #   ]
+        # }
+        classes = data.get("classified", [])
+        if classes:
+            # 回傳最高機率的那個 food name
+            top = max(classes, key=lambda x: x.get("probability", 0))
+            return top.get("name", "").lower()
+        else:
+            return ""
+    except Exception as e:
+        print("Spoonacular classify_image error:", e)
+        return ""
