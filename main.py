@@ -1,27 +1,29 @@
-import os, tempfile, asyncio, json
+import os, tempfile
 from fastapi import FastAPI, Request, HTTPException
 
-# ✅ v3 正確匯入路徑（單數 webhook）
+# === LINE Bot SDK v3 ===
 from linebot.v3.webhook import WebhookParser, WebhookHandler
 from linebot.v3.messaging import (
     AsyncMessagingApi, ReplyMessageRequest, TextMessage, ImageMessage
 )
-from linebot.v3.exceptions import MessagingApiError   # v3 的例外類別
+from linebot.v3.exceptions import LineBotApiError
 
+# === 你的功能模組 ===
 from food_classifier import classify_image
 from nutrition_db import lookup_food
 from chat import generate_reply
+
+# === 環境變數 (.env) ===
 from dotenv import load_dotenv; load_dotenv()
 
 app = FastAPI()
 
-# ---- LINE SDK 初始化 ----
+# --------- LINE SDK 初始化 ---------
 parser = WebhookParser(os.getenv("LINE_CHANNEL_SECRET"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 line_api = AsyncMessagingApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 
-
-# 入口：LINE POST /callback
+# --------- Webhook 入口 ---------
 @app.post("/callback")
 async def callback(request: Request):
     body = await request.body()
@@ -37,12 +39,26 @@ async def callback(request: Request):
             await handle_image(event)
         elif isinstance(event.message, TextMessage):
             await handle_text(event)
+
     return "OK"
 
+# --------- 文字處理 ---------
+async def handle_text(event):
+    text = event.message.text.strip()
+    info = lookup_food(text)
+    if info:
+        reply = (
+            f"{info['name']} ≈ {info['kcal']} kcal\n"
+            f"蛋白質 {info['protein']} g、脂肪 {info['fat']} g\n"
+            f"建議：{info['advice']}"
+        )
+    else:
+        reply = generate_reply(text)                 # GPT-4o 閒聊
+    await safe_reply(event.reply_token, reply)
 
-# ----- 處理圖片 -----
+# --------- 圖片處理 ---------
 async def handle_image(event):
-    # 下載暫存圖片
+    # 下載圖片到暫存檔
     msg_id = event.message.id
     content = await line_api.get_message_content(msg_id)
     with tempfile.NamedTemporaryFile(delete=False) as fp:
@@ -50,9 +66,9 @@ async def handle_image(event):
             fp.write(chunk)
         tmp_path = fp.name
 
-    # 推論 → 查營養
-    food = classify_image(tmp_path)            # e.g. "fried_rice"
-    info = lookup_food(food)                   # dict 或 None
+    # 圖片辨識 → 營養資料
+    food = classify_image(tmp_path)
+    info = lookup_food(food)
 
     if info:
         reply = (
@@ -63,28 +79,9 @@ async def handle_image(event):
     else:
         reply = f"辨識到「{food}」，但暫時沒有營養資料 QQ"
 
-    # 回覆
     await safe_reply(event.reply_token, reply)
 
-
-# ----- 處理文字 -----
-async def handle_text(event):
-    text = event.message.text.strip()
-    info = lookup_food(text)
-
-    if info:
-        reply = (
-            f"{info['name']} ≈ {info['kcal']} kcal\n"
-            f"蛋白質 {info['protein']} g、脂肪 {info['fat']} g\n"
-            f"建議：{info['advice']}"
-        )
-    else:
-        reply = generate_reply(text)           # GPT-4o 聊天
-
-    await safe_reply(event.reply_token, reply)
-
-
-# ---- 共用安全回覆 ----
+# --------- 共用安全回覆 ---------
 async def safe_reply(token: str, message: str):
     try:
         await line_api.reply_message(
@@ -93,13 +90,10 @@ async def safe_reply(token: str, message: str):
                 messages=[TextMessage(text=message)]
             )
         )
-    except MessagingApiError as e:
-        # 記錄錯誤避免程式崩潰
-        print("LINE MessagingApiError",
-              e.status_code, e.headers, e.body)
+    except LineBotApiError as e:        # v3 的例外名稱
+        print("LineBotApiError:", e.status_code, e.headers, e.body)
 
-
-# (可選) 健康檢查，方便 Render / UptimeRobot ping
+# --------- 健康檢查 (可選) ---------
 @app.get("/healthz")
 def health():
     return {"ok": True}
